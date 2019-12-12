@@ -69,6 +69,7 @@ enum PageChildElement {
     Ns,
     Revision,
     Title,
+    Redirect,
     Unknown,
 }
 
@@ -133,6 +134,13 @@ pub struct Page {
     ///
     /// Parsed from the text content of the `title` element in the `page` element.
     pub title: String,
+    
+    /// The redirect target if any.
+    ///
+    /// Parsed from the content of the `title` attribute of the `redirect` element in the `page` element.
+    ///
+    /// For pages that are not redirects, the `redirect` element is not present.
+    pub redirect_title: Option<String>,
 }
 
 /// Parser working as an iterator over pages.
@@ -215,6 +223,7 @@ fn next(parser: &mut Parser<impl BufRead>) -> Result<Option<Page>, Error> {
         let mut format = None;
         let mut model = None;
         let mut namespace = None;
+        let mut redirect_title = None;
         let mut text = None;
         let mut title = None;
         loop {
@@ -229,6 +238,7 @@ fn next(parser: &mut Parser<impl BufRead>) -> Result<Option<Page>, Error> {
                             format,
                             model,
                             namespace,
+                            redirect_title,
                             text,
                             title,
                         })),
@@ -239,6 +249,16 @@ fn next(parser: &mut Parser<impl BufRead>) -> Result<Option<Page>, Error> {
                     if match_namespace(namespace) {
                         match event.local_name() {
                             b"ns" => PageChildElement::Ns,
+                            b"redirect" => {
+                                let title_attribute = event.attributes()
+                                    .filter_map(|r| r.ok())
+                                    .find(|attr| attr.key == b"title");
+                                redirect_title = match title_attribute {
+                                    Some(attr) => Some(attr.unescape_and_decode_value(&parser.reader)?),
+                                    None => return Err(Error::Format(parser.reader.buffer_position())),
+                                };
+                                PageChildElement::Redirect
+                            },
                             b"revision" => PageChildElement::Revision,
                             b"title" => PageChildElement::Title,
                             _ => PageChildElement::Unknown,
@@ -256,6 +276,7 @@ fn next(parser: &mut Parser<impl BufRead>) -> Result<Option<Page>, Error> {
                         continue;
                     }
                 },
+                PageChildElement::Redirect => skip_element(parser)?,
                 PageChildElement::Revision => {
                     if text.is_some() {
                         return Err(Error::NotSupported(parser.reader.buffer_position()));
