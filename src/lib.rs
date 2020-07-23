@@ -63,7 +63,10 @@
 extern crate quick_xml;
 
 use quick_xml::{events::Event, Reader};
-use std::io::BufRead;
+use std::{io::BufRead, marker::PhantomData, convert::TryInto};
+
+/// The default namespace type in the [`Page`] struct.
+pub type RawNamespace = u32;
 
 enum PageChildElement {
     Ns,
@@ -95,15 +98,20 @@ pub enum Error {
 
     /// Error from the XML reader.
     XmlReader(quick_xml::Error),
+
+    /// Namespace id could not be converted to selected namespace type.
+    Namespace(RawNamespace),
 }
 
 /// Parsed page.
 ///
 /// Parsed from the `page` element.
 ///
+/// Generic over the type of the namespace, which must be convertible from `RawNamespace` with `Into`. Use [`parse_with_namespace`] to select a custom type for the namespace; [`parse`] uses the default, `RawNamespace>.
+///
 /// Although the `format` and `model` elements are defined as mandatory in the [schema](https://www.mediawiki.org/xml/export-0.10.xsd), previous versions of the schema don't contain them. Therefore the corresponding fields can be `None`.
 #[derive(Debug)]
-pub struct Page {
+pub struct Page<N> {
     /// The format of the revision if any.
     ///
     /// Parsed from the text content of the `format` element in the `revision` element. `None` if the element is not present.
@@ -118,12 +126,18 @@ pub struct Page {
     /// For ordinary articles the model is `wikitext`.
     pub model: Option<String>,
 
-    /// The namespace of the page.
+    /// The [namespace](https://www.mediawiki.org/wiki/Manual:Namespace)
+    /// of the page, which must be a type that can be converted
+    /// from [`RawNamespace`] using [`Into`]. All namespaces in the dump are positive numbers,
+    /// so an unsigned type can be used.
+    /// The corresponding field in the database
+    /// (the [`page_namespace`](https://www.mediawiki.org/wiki/Manual:Page_table#page_namespace)
+    /// field in the `page` table) is a signed integer.
     ///
     /// Parsed from the text content of the `ns` element in the `page` element.
     ///
-    /// For ordinary articles the namespace is 0.
-    pub namespace: u32,
+    /// For ordinary articles the namespace is `0`.
+    pub namespace: N,
 
     /// The text of the revision.
     ///
@@ -144,11 +158,12 @@ pub struct Page {
 }
 
 /// Parser working as an iterator over pages.
-pub struct Parser<R: BufRead> {
+pub struct Parser<R: BufRead, Namespace> {
     buffer: Vec<u8>,
     namespace_buffer: Vec<u8>,
     reader: Reader<R>,
     started: bool,
+    phantom: PhantomData<Namespace>,
 }
 
 impl std::fmt::Display for Error {
@@ -163,6 +178,11 @@ impl std::fmt::Display for Error {
                 position
             ),
             Error::XmlReader(error) => error.fmt(formatter),
+            Error::Namespace(namespace) => write!(
+                formatter,
+                "The namespace {} was not recognized",
+                namespace
+            )
         }
     }
 }
@@ -173,8 +193,8 @@ impl From<quick_xml::Error> for Error {
     }
 }
 
-impl<R: BufRead> Iterator for Parser<R> {
-    type Item = Result<Page, Error>;
+impl<R: BufRead, N> Iterator for Parser<R, N> where RawNamespace: TryInto<N> {
+    type Item = Result<Page<N>, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         Some(match next(self) {
@@ -193,7 +213,7 @@ fn match_namespace(namespace: Option<&[u8]>) -> bool {
     }
 }
 
-fn next(parser: &mut Parser<impl BufRead>) -> Result<Option<Page>, Error> {
+fn next<R: BufRead, N>(parser: &mut Parser<R, N>) -> Result<Option<Page<N>>, Error> where RawNamespace: TryInto<N> {
     if !parser.started {
         loop {
             parser.buffer.clear();
@@ -291,14 +311,14 @@ fn next(parser: &mut Parser<impl BufRead>) -> Result<Option<Page>, Error> {
                 _ => continue,
             } {
                 PageChildElement::Ns => {
-                    match parse_text(parser, &namespace)?.parse() {
+                    match parse_text(parser, &namespace)?.parse::<RawNamespace>() {
                         Err(_) => {
                             return Err(Error::Format(
                                 parser.reader.buffer_position(),
                             ))
                         }
                         Ok(value) => {
-                            namespace = Some(value);
+                            namespace = Some(value.try_into().map_err(|_| Error::Namespace(value))?);
                             continue;
                         }
                     }
@@ -366,10 +386,17 @@ fn next(parser: &mut Parser<impl BufRead>) -> Result<Option<Page>, Error> {
     }
 }
 
-/// Creates a parser for a stream.
+/// Creates a parser for a stream in which namespaces are represented as [`RawNamespace`]. Equivalent to `parse_with_namespace` with the second generic argument set to `RawNamespace` (`parse_with_namespace::<_, RawNamespace>`).
 ///
 /// The stream is parsed as an XML dump exported from Mediawiki. The parser is an iterator over the pages in the dump.
-pub fn parse<R: BufRead>(source: R) -> Parser<R> {
+pub fn parse<R: BufRead>(source: R) -> Parser<R, RawNamespace> {
+    parse_with_namespace(source)
+}
+
+/// Creates a parser for a stream. Allows you to select a type for the namespace.
+///
+/// The stream is parsed as an XML dump exported from Mediawiki. The parser is an iterator over the pages in the dump.
+pub fn parse_with_namespace<R: BufRead, N>(source: R) -> Parser<R, N> where RawNamespace: TryInto<N> {
     let mut reader = Reader::from_reader(source);
     reader.expand_empty_elements(true);
     Parser {
@@ -377,13 +404,14 @@ pub fn parse<R: BufRead>(source: R) -> Parser<R> {
         namespace_buffer: vec![],
         reader,
         started: false,
+        phantom: PhantomData,
     }
 }
 
-fn parse_text(
-    parser: &mut Parser<impl BufRead>,
+fn parse_text<R: BufRead, N> (
+    parser: &mut Parser<R, N>,
     output: &Option<impl Sized>,
-) -> Result<String, Error> {
+) -> Result<String, Error> where RawNamespace: TryInto<N> {
     if output.is_some() {
         return Err(Error::Format(parser.reader.buffer_position()));
     }
@@ -415,9 +443,9 @@ fn parse_text(
     }
 }
 
-fn skip_element(
-    parser: &mut Parser<impl BufRead>,
-) -> Result<(), quick_xml::Error> {
+fn skip_element<R: BufRead, N>(
+    parser: &mut Parser<R, N>,
+) -> Result<(), quick_xml::Error> where RawNamespace: TryInto<N> {
     let mut level = 0;
     loop {
         parser.buffer.clear();
