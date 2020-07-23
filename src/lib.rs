@@ -2,60 +2,79 @@
 // This is free software distributed under the terms specified in
 // the file LICENSE at the top-level directory of this distribution.
 
-//! Parse XML dumps exported from Mediawiki.
-//!
-//! This module parses [XML dumps](https://www.mediawiki.org/wiki/Help:Export) exported from Mediawiki, providing each page from the dump through an iterator. This is useful for parsing the [dumps from Wikipedia and other Wikimedia projects](https://dumps.wikimedia.org).
-//!
-//! # Caution
-//!
-//! If you need to parse any wiki text extracted from a dump, please use the crate Parse Wiki Text ([crates.io](https://crates.io/crates/parse_wiki_text), [Github](https://github.com/portstrom/parse_wiki_text)). Correctly parsing wiki text requires dealing with an astonishing amount of difficult and counterintuitive cases. Parse Wiki Text automatically deals with all these cases, giving you an unambiguous tree of parsed elements that is easy to work with.
-//!
-//! # Limitations
-//!
-//! This module only parses dumps containing only one revision of each page. This is what you get from the page `Special:Export` when enabling the option “Include only the current revision, not the full history”, as well as what you get from the Wikimedia dumps with file names ending with `-pages-articles.xml.bz2`.
-//!
-//! This module ignores the `siteinfo` element, every child element of the `page` element except `ns`, `revision` and `title`, and every element inside the `revision` element except `format`, `model` and `text`.
-//!
-//! Until there is a real use case that justifies going beyond these limitations, they will remain in order to avoid premature design driven by imagined requirements.
-//!
-//! # Examples
-//!
-//! Parse a bzip2 compressed file and distinguish ordinary articles from other pages. A running example with complete error handling is available in the `examples` folder.
-//!
-//! ```rust,no_run
-//! extern crate bzip2;
-//! extern crate parse_mediawiki_dump;
-//!
-//! fn main() {
-//!     let file = std::fs::File::open("example.xml.bz2").unwrap();
-//!     let file = std::io::BufReader::new(file);
-//!     let file = bzip2::bufread::BzDecoder::new(file);
-//!     let file = std::io::BufReader::new(file);
-//!     for result in parse_mediawiki_dump::parse(file) {
-//!         match result {
-//!             Err(error) => {
-//!                 eprintln!("Error: {}", error);
-//!                 break;
-//!             }
-//!             Ok(page) => if page.namespace == 0 && match &page.format {
-//!                 None => false,
-//!                 Some(format) => format == "text/x-wiki"
-//!             } && match &page.model {
-//!                 None => false,
-//!                 Some(model) => model == "wikitext"
-//!             } {
-//!                 println!(
-//!                     "The page {title:?} is an ordinary article with byte length {length}.",
-//!                     title = page.title,
-//!                     length = page.text.len()
-//!                 );
-//!             } else {
-//!                 println!("The page {:?} has something special to it.", page.title);
-//!             }
-//!         }
-//!     }
-//! }
-//! ```
+/*!
+Parse XML dumps exported from MediaWiki.
+
+This module parses [XML dumps](https://www.mediawiki.org/wiki/Help:Export)
+exported from MediaWiki, providing each page from the dump through an iterator.
+This is useful for parsing
+the [dumps from Wikipedia and other Wikimedia projects](https://dumps.wikimedia.org).
+
+# Caution
+
+If you need to parse any wiki text extracted from a dump, please use the crate
+Parse Wiki Text ([crates.io](https://crates.io/crates/parse_wiki_text),
+[Github](https://github.com/portstrom/parse_wiki_text)).
+Correctly parsing wiki text requires dealing with an astonishing amount
+of difficult and counterintuitive cases. Parse Wiki Text automatically deals
+with all these cases, giving you an unambiguous tree of parsed elements
+that is easy to work with.
+
+# Limitations
+
+This module only parses dumps containing only one revision of each page.
+This is what you get from the page `Special:Export` when enabling the option
+“Include only the current revision, not the full history”, as well as what you
+get from the Wikimedia dumps with file names ending with `-pages-articles.xml.bz2`.
+
+This module ignores the `siteinfo` element, every child element of the `page`
+element except `ns`, `revision` and `title`, and every element inside the
+`revision` element except `format`, `model` and `text`.
+
+Until there is a real use case that justifies going beyond these limitations,
+they will remain in order to avoid premature design driven by imagined requirements.
+
+# Examples
+
+Parse a bzip2 compressed file and distinguish ordinary articles from other pages.
+A running example with complete error handling is available in the
+`examples` folder.
+
+```rust,no_run
+extern crate bzip2;
+extern crate parse_mediawiki_dump;
+
+fn main() {
+    let file = std::fs::File::open("example.xml.bz2").unwrap();
+    let file = std::io::BufReader::new(file);
+    let file = bzip2::bufread::BzDecoder::new(file);
+    let file = std::io::BufReader::new(file);
+    for result in parse_mediawiki_dump::parse(file) {
+        match result {
+            Err(error) => {
+                eprintln!("Error: {}", error);
+                break;
+            }
+            Ok(page) => if page.namespace == 0 && match &page.format {
+                None => false,
+                Some(format) => format == "text/x-wiki"
+            } && match &page.model {
+                None => false,
+                Some(model) => model == "wikitext"
+            } {
+                println!(
+                    "The page {title:?} is an ordinary article with byte length {length}.",
+                    title = page.title,
+                    length = page.text.len()
+                );
+            } else {
+                println!("The page {:?} has something special to it.", page.title);
+            }
+        }
+    }
+}
+```
+*/
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -63,7 +82,7 @@
 extern crate quick_xml;
 
 use quick_xml::{events::Event, Reader};
-use std::{io::BufRead, marker::PhantomData, convert::TryInto};
+use std::{convert::TryInto, io::BufRead, marker::PhantomData};
 
 /// The default namespace type in the [`Page`] struct.
 pub type RawNamespace = u32;
@@ -107,21 +126,28 @@ pub enum Error {
 ///
 /// Parsed from the `page` element.
 ///
-/// Generic over the type of the namespace, which must be convertible from `RawNamespace` with `Into`. Use [`parse_with_namespace`] to select a custom type for the namespace; [`parse`] uses the default, `RawNamespace>.
+/// Generic over the type of the namespace, which must be convertible
+/// from `RawNamespace` with `Into`. Use [`parse_with_namespace`] to select
+/// a custom type for the namespace; [`parse`] uses the default, `RawNamespace>.
 ///
-/// Although the `format` and `model` elements are defined as mandatory in the [schema](https://www.mediawiki.org/xml/export-0.10.xsd), previous versions of the schema don't contain them. Therefore the corresponding fields can be `None`.
+/// Although the `format` and `model` elements are defined as mandatory in the
+/// [schema](https://www.mediawiki.org/xml/export-0.10.xsd), previous versions
+/// of the schema don't contain them. Therefore the corresponding fields can
+/// be `None`.
 #[derive(Debug)]
 pub struct Page<N> {
     /// The format of the revision if any.
     ///
-    /// Parsed from the text content of the `format` element in the `revision` element. `None` if the element is not present.
+    /// Parsed from the text content of the `format` element in the `revision`
+    /// element. `None` if the element is not present.
     ///
     /// For ordinary articles the format is `text/x-wiki`.
     pub format: Option<String>,
 
     /// The model of the revision if any.
     ///
-    /// Parsed from the text content of the `model` element in the `revision` element. `None` if the element is not present.
+    /// Parsed from the text content of the `model` element in the `revision`
+    /// element. `None` if the element is not present.
     ///
     /// For ordinary articles the model is `wikitext`.
     pub model: Option<String>,
@@ -151,7 +177,8 @@ pub struct Page<N> {
 
     /// The redirect target if any.
     ///
-    /// Parsed from the content of the `title` attribute of the `redirect` element in the `page` element.
+    /// Parsed from the content of the `title` attribute of the `redirect`
+    /// element in the `page` element.
     ///
     /// For pages that are not redirects, the `redirect` element is not present.
     pub redirect_title: Option<String>,
@@ -182,7 +209,7 @@ impl std::fmt::Display for Error {
                 formatter,
                 "The namespace {} was not recognized",
                 namespace
-            )
+            ),
         }
     }
 }
@@ -193,7 +220,10 @@ impl From<quick_xml::Error> for Error {
     }
 }
 
-impl<R: BufRead, N> Iterator for Parser<R, N> where RawNamespace: TryInto<N> {
+impl<R: BufRead, N> Iterator for Parser<R, N>
+where
+    RawNamespace: TryInto<N>,
+{
     type Item = Result<Page<N>, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -213,7 +243,12 @@ fn match_namespace(namespace: Option<&[u8]>) -> bool {
     }
 }
 
-fn next<R: BufRead, N>(parser: &mut Parser<R, N>) -> Result<Option<Page<N>>, Error> where RawNamespace: TryInto<N> {
+fn next<R: BufRead, N>(
+    parser: &mut Parser<R, N>,
+) -> Result<Option<Page<N>>, Error>
+where
+    RawNamespace: TryInto<N>,
+{
     if !parser.started {
         loop {
             parser.buffer.clear();
@@ -311,14 +346,20 @@ fn next<R: BufRead, N>(parser: &mut Parser<R, N>) -> Result<Option<Page<N>>, Err
                 _ => continue,
             } {
                 PageChildElement::Ns => {
-                    match parse_text(parser, &namespace)?.parse::<RawNamespace>() {
+                    match parse_text(parser, &namespace)?
+                        .parse::<RawNamespace>()
+                    {
                         Err(_) => {
                             return Err(Error::Format(
                                 parser.reader.buffer_position(),
                             ))
                         }
                         Ok(value) => {
-                            namespace = Some(value.try_into().map_err(|_| Error::Namespace(value))?);
+                            namespace = Some(
+                                value
+                                    .try_into()
+                                    .map_err(|_| Error::Namespace(value))?,
+                            );
                             continue;
                         }
                     }
@@ -386,17 +427,24 @@ fn next<R: BufRead, N>(parser: &mut Parser<R, N>) -> Result<Option<Page<N>>, Err
     }
 }
 
-/// Creates a parser for a stream in which namespaces are represented as [`RawNamespace`]. Equivalent to `parse_with_namespace` with the second generic argument set to `RawNamespace` (`parse_with_namespace::<_, RawNamespace>`).
+/// Creates a parser for a stream in which namespaces are represented as
+/// [`RawNamespace`]. Equivalent to `parse_with_namespace` with the second
+/// generic argument set to `RawNamespace` (`parse_with_namespace::<_, RawNamespace>`).
 ///
-/// The stream is parsed as an XML dump exported from Mediawiki. The parser is an iterator over the pages in the dump.
+/// The stream is parsed as an XML dump exported from MediaWiki. The parser is
+/// an iterator over the pages in the dump.
 pub fn parse<R: BufRead>(source: R) -> Parser<R, RawNamespace> {
     parse_with_namespace(source)
 }
 
 /// Creates a parser for a stream. Allows you to select a type for the namespace.
 ///
-/// The stream is parsed as an XML dump exported from Mediawiki. The parser is an iterator over the pages in the dump.
-pub fn parse_with_namespace<R: BufRead, N>(source: R) -> Parser<R, N> where RawNamespace: TryInto<N> {
+/// The stream is parsed as an XML dump exported from MediaWiki. The parser is
+/// an iterator over the pages in the dump.
+pub fn parse_with_namespace<R: BufRead, N>(source: R) -> Parser<R, N>
+where
+    RawNamespace: TryInto<N>,
+{
     let mut reader = Reader::from_reader(source);
     reader.expand_empty_elements(true);
     Parser {
@@ -408,10 +456,13 @@ pub fn parse_with_namespace<R: BufRead, N>(source: R) -> Parser<R, N> where RawN
     }
 }
 
-fn parse_text<R: BufRead, N> (
+fn parse_text<R: BufRead, N>(
     parser: &mut Parser<R, N>,
     output: &Option<impl Sized>,
-) -> Result<String, Error> where RawNamespace: TryInto<N> {
+) -> Result<String, Error>
+where
+    RawNamespace: TryInto<N>,
+{
     if output.is_some() {
         return Err(Error::Format(parser.reader.buffer_position()));
     }
@@ -445,7 +496,10 @@ fn parse_text<R: BufRead, N> (
 
 fn skip_element<R: BufRead, N>(
     parser: &mut Parser<R, N>,
-) -> Result<(), quick_xml::Error> where RawNamespace: TryInto<N> {
+) -> Result<(), quick_xml::Error>
+where
+    RawNamespace: TryInto<N>,
+{
     let mut level = 0;
     loop {
         parser.buffer.clear();
