@@ -134,7 +134,7 @@ pub struct Page {
     ///
     /// Parsed from the text content of the `title` element in the `page` element.
     pub title: String,
-    
+
     /// The redirect target if any.
     ///
     /// Parsed from the content of the `title` attribute of the `redirect` element in the `page` element.
@@ -154,7 +154,9 @@ pub struct Parser<R: BufRead> {
 impl std::fmt::Display for Error {
     fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Error::Format(position) => write!(formatter, "Invalid format at position {}", position),
+            Error::Format(position) => {
+                write!(formatter, "Invalid format at position {}", position)
+            }
             Error::NotSupported(position) => write!(
                 formatter,
                 "The element at position {} is not supported",
@@ -185,7 +187,9 @@ impl<R: BufRead> Iterator for Parser<R> {
 fn match_namespace(namespace: Option<&[u8]>) -> bool {
     match namespace {
         None => false,
-        Some(namespace) => namespace == b"http://www.mediawiki.org/xml/export-0.10/" as &[u8],
+        Some(namespace) => {
+            namespace == b"http://www.mediawiki.org/xml/export-0.10/" as &[u8]
+        }
     }
 }
 
@@ -193,11 +197,15 @@ fn next(parser: &mut Parser<impl BufRead>) -> Result<Option<Page>, Error> {
     if !parser.started {
         loop {
             parser.buffer.clear();
-            if let (namespace, Event::Start(event)) = parser
-                .reader
-                .read_namespaced_event(&mut parser.buffer, &mut parser.namespace_buffer)?
+            if let (namespace, Event::Start(event)) =
+                parser.reader.read_namespaced_event(
+                    &mut parser.buffer,
+                    &mut parser.namespace_buffer,
+                )?
             {
-                if match_namespace(namespace) && event.local_name() == b"mediawiki" {
+                if match_namespace(namespace)
+                    && event.local_name() == b"mediawiki"
+                {
                     break;
                 }
                 return Err(Error::Format(parser.reader.buffer_position()));
@@ -207,10 +215,10 @@ fn next(parser: &mut Parser<impl BufRead>) -> Result<Option<Page>, Error> {
     }
     loop {
         parser.buffer.clear();
-        if !match parser
-            .reader
-            .read_namespaced_event(&mut parser.buffer, &mut parser.namespace_buffer)?
-        {
+        if !match parser.reader.read_namespaced_event(
+            &mut parser.buffer,
+            &mut parser.namespace_buffer,
+        )? {
             (_, Event::End(_)) => return Ok(None),
             (namespace, Event::Start(event)) => {
                 match_namespace(namespace) && event.local_name() == b"page"
@@ -228,21 +236,25 @@ fn next(parser: &mut Parser<impl BufRead>) -> Result<Option<Page>, Error> {
         let mut title = None;
         loop {
             parser.buffer.clear();
-            match match parser
-                .reader
-                .read_namespaced_event(&mut parser.buffer, &mut parser.namespace_buffer)?
-            {
+            match match parser.reader.read_namespaced_event(
+                &mut parser.buffer,
+                &mut parser.namespace_buffer,
+            )? {
                 (_, Event::End(_)) => {
                     return match (namespace, text, title) {
-                        (Some(namespace), Some(text), Some(title)) => Ok(Some(Page {
-                            format,
-                            model,
-                            namespace,
-                            redirect_title,
-                            text,
-                            title,
-                        })),
-                        _ => Err(Error::Format(parser.reader.buffer_position())),
+                        (Some(namespace), Some(text), Some(title)) => {
+                            Ok(Some(Page {
+                                format,
+                                model,
+                                namespace,
+                                redirect_title,
+                                text,
+                                title,
+                            }))
+                        }
+                        _ => {
+                            Err(Error::Format(parser.reader.buffer_position()))
+                        }
                     }
                 }
                 (namespace, Event::Start(event)) => {
@@ -250,15 +262,24 @@ fn next(parser: &mut Parser<impl BufRead>) -> Result<Option<Page>, Error> {
                         match event.local_name() {
                             b"ns" => PageChildElement::Ns,
                             b"redirect" => {
-                                let title_attribute = event.attributes()
+                                let title_attribute = event
+                                    .attributes()
                                     .filter_map(|r| r.ok())
                                     .find(|attr| attr.key == b"title");
                                 redirect_title = match title_attribute {
-                                    Some(attr) => Some(attr.unescape_and_decode_value(&parser.reader)?),
-                                    None => return Err(Error::Format(parser.reader.buffer_position())),
+                                    Some(attr) => {
+                                        Some(attr.unescape_and_decode_value(
+                                            &parser.reader,
+                                        )?)
+                                    }
+                                    None => {
+                                        return Err(Error::Format(
+                                            parser.reader.buffer_position(),
+                                        ))
+                                    }
                                 };
                                 PageChildElement::Redirect
-                            },
+                            }
                             b"revision" => PageChildElement::Revision,
                             b"title" => PageChildElement::Title,
                             _ => PageChildElement::Unknown,
@@ -269,17 +290,25 @@ fn next(parser: &mut Parser<impl BufRead>) -> Result<Option<Page>, Error> {
                 }
                 _ => continue,
             } {
-                PageChildElement::Ns => match parse_text(parser, &namespace)?.parse() {
-                    Err(_) => return Err(Error::Format(parser.reader.buffer_position())),
-                    Ok(value) => {
-                        namespace = Some(value);
-                        continue;
+                PageChildElement::Ns => {
+                    match parse_text(parser, &namespace)?.parse() {
+                        Err(_) => {
+                            return Err(Error::Format(
+                                parser.reader.buffer_position(),
+                            ))
+                        }
+                        Ok(value) => {
+                            namespace = Some(value);
+                            continue;
+                        }
                     }
-                },
+                }
                 PageChildElement::Redirect => skip_element(parser)?,
                 PageChildElement::Revision => {
                     if text.is_some() {
-                        return Err(Error::NotSupported(parser.reader.buffer_position()));
+                        return Err(Error::NotSupported(
+                            parser.reader.buffer_position(),
+                        ));
                     }
                     loop {
                         parser.buffer.clear();
@@ -288,19 +317,27 @@ fn next(parser: &mut Parser<impl BufRead>) -> Result<Option<Page>, Error> {
                             &mut parser.namespace_buffer,
                         )? {
                             (_, Event::End(_)) => match text {
-                                None => return Err(Error::Format(parser.reader.buffer_position())),
+                                None => {
+                                    return Err(Error::Format(
+                                        parser.reader.buffer_position(),
+                                    ))
+                                }
                                 Some(_) => break,
                             },
-                            (namespace, Event::Start(event)) => if match_namespace(namespace) {
-                                match event.local_name() {
-                                    b"format" => RevisionChildElement::Format,
-                                    b"model" => RevisionChildElement::Model,
-                                    b"text" => RevisionChildElement::Text,
-                                    _ => RevisionChildElement::Unknown,
+                            (namespace, Event::Start(event)) => {
+                                if match_namespace(namespace) {
+                                    match event.local_name() {
+                                        b"format" => {
+                                            RevisionChildElement::Format
+                                        }
+                                        b"model" => RevisionChildElement::Model,
+                                        b"text" => RevisionChildElement::Text,
+                                        _ => RevisionChildElement::Unknown,
+                                    }
+                                } else {
+                                    RevisionChildElement::Unknown
                                 }
-                            } else {
-                                RevisionChildElement::Unknown
-                            },
+                            }
                             _ => continue,
                         } {
                             RevisionChildElement::Format => {
@@ -309,8 +346,12 @@ fn next(parser: &mut Parser<impl BufRead>) -> Result<Option<Page>, Error> {
                             RevisionChildElement::Model => {
                                 model = Some(parse_text(parser, &model)?)
                             }
-                            RevisionChildElement::Text => text = Some(parse_text(parser, &text)?),
-                            RevisionChildElement::Unknown => skip_element(parser)?,
+                            RevisionChildElement::Text => {
+                                text = Some(parse_text(parser, &text)?)
+                            }
+                            RevisionChildElement::Unknown => {
+                                skip_element(parser)?
+                            }
                         }
                     }
                     continue;
@@ -349,7 +390,10 @@ fn parse_text(
     parser.buffer.clear();
     let text = match parser
         .reader
-        .read_namespaced_event(&mut parser.buffer, &mut parser.namespace_buffer)?
+        .read_namespaced_event(
+            &mut parser.buffer,
+            &mut parser.namespace_buffer,
+        )?
         .1
     {
         Event::Text(text) => text.unescape_and_decode(&parser.reader)?,
@@ -359,7 +403,10 @@ fn parse_text(
     parser.buffer.clear();
     if let Event::End(_) = parser
         .reader
-        .read_namespaced_event(&mut parser.buffer, &mut parser.namespace_buffer)?
+        .read_namespaced_event(
+            &mut parser.buffer,
+            &mut parser.namespace_buffer,
+        )?
         .1
     {
         Ok(text)
@@ -368,13 +415,18 @@ fn parse_text(
     }
 }
 
-fn skip_element(parser: &mut Parser<impl BufRead>) -> Result<(), quick_xml::Error> {
+fn skip_element(
+    parser: &mut Parser<impl BufRead>,
+) -> Result<(), quick_xml::Error> {
     let mut level = 0;
     loop {
         parser.buffer.clear();
         match parser
             .reader
-            .read_namespaced_event(&mut parser.buffer, &mut parser.namespace_buffer)?
+            .read_namespaced_event(
+                &mut parser.buffer,
+                &mut parser.namespace_buffer,
+            )?
             .1
         {
             Event::End(_) => {

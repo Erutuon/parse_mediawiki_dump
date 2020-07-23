@@ -27,8 +27,9 @@ const DUMP: &str = r#"
 
 #[test]
 fn main() {
-    let mut parser =
-        parse_mediawiki_dump::parse(std::io::BufReader::new(std::io::Cursor::new(DUMP)));
+    let mut parser = parse_mediawiki_dump::parse(std::io::BufReader::new(
+        std::io::Cursor::new(DUMP),
+    ));
     assert!(match parser.next() {
         Some(Ok(parse_mediawiki_dump::Page {
             format: Some(format),
@@ -37,7 +38,12 @@ fn main() {
             redirect_title,
             text,
             title,
-        })) => format == "beta" && model == "gamma" && redirect_title == None && text == "delta" && title == "alpha",
+        })) =>
+            format == "beta"
+                && model == "gamma"
+                && redirect_title == None
+                && text == "delta"
+                && title == "alpha",
         _ => false,
     });
     assert!(match parser.next() {
@@ -48,7 +54,10 @@ fn main() {
             redirect_title,
             text,
             title,
-        })) => text == "eta" && title == "epsilon" && redirect_title == Some("zeta".to_string()),
+        })) =>
+            text == "eta"
+                && title == "epsilon"
+                && redirect_title == Some("zeta".to_string()),
         _ => false,
     });
     assert!(parser.next().is_none());
