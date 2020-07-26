@@ -122,18 +122,77 @@ pub enum Error {
     Namespace(RawNamespace),
 }
 
-/// Parsed page.
-///
-/// Parsed from the `page` element.
-///
-/// Generic over the type of the namespace, which must be convertible
-/// from `RawNamespace` with `Into`. Use [`parse_with_namespace`] to select
-/// a custom type for the namespace; [`parse`] uses the default, `RawNamespace>.
-///
-/// Although the `format` and `model` elements are defined as mandatory in the
-/// [schema](https://www.mediawiki.org/xml/export-0.10.xsd), previous versions
-/// of the schema don't contain them. Therefore the corresponding fields can
-/// be `None`.
+/**
+Parsed page.
+
+Parsed from the `page` element.
+
+Generic over the type of the namespace, which must be convertible
+from `RawNamespace` with `TryInto`. Use [`parse_with_namespace`] to select
+a custom type for the namespace; [`parse`] uses the default, `RawNamespace>.
+
+Although the `format` and `model` elements are defined as mandatory in the
+[schema](https://www.mediawiki.org/xml/export-0.10.xsd), previous versions
+of the schema don't contain them. Therefore the corresponding fields can
+be `None`.
+
+A namespace type should have at minimum namespaces 0 to 15, which are
+present in all MediaWiki installations, and can look like this:
+
+```rust,no_run
+use std::convert::TryFrom;
+// use parse_mediawiki_dump::RawNamespace;
+type RawNamespace = u32;
+
+pub enum Namespace {
+    Main = 0,
+    Talk = 1,
+    User = 2,
+    UserTalk = 3,
+    Wiktionary = 4,
+    WiktionaryTalk = 5,
+    File = 6,
+    FileTalk = 7,
+    MediaWiki = 8,
+    MediaWikiTalk = 9,
+    Template = 10,
+    TemplateTalk = 11,
+    Help = 12,
+    HelpTalk = 13,
+    Category = 14,
+    CategoryTalk = 15,
+}
+
+impl TryFrom<RawNamespace> for Namespace {
+    type Error = &'static str;
+    
+    fn try_from(id: RawNamespace) -> Result<Self, Self::Error> {
+        use Namespace::*;
+        let namespace = match id {
+            0 => Main,
+            1 => Talk,
+            2 => User,
+            3 => UserTalk,
+            4 => Wiktionary,
+            5 => WiktionaryTalk,
+            6 => File,
+            7 => FileTalk,
+            8 => MediaWiki,
+            9 => MediaWikiTalk,
+            10 => Template,
+            11 => TemplateTalk,
+            12 => Help,
+            13 => HelpTalk,
+            14 => Category,
+            15 => CategoryTalk,
+            _ => return Err("invalid namespace"),
+        };
+        Ok(namespace)
+    }
+}
+# fn main() {}
+```
+*/
 #[derive(Debug)]
 pub struct Page<N> {
     /// The format of the revision if any.
@@ -152,17 +211,20 @@ pub struct Page<N> {
     /// For ordinary articles the model is `wikitext`.
     pub model: Option<String>,
 
-    /// The [namespace](https://www.mediawiki.org/wiki/Manual:Namespace)
-    /// of the page, which must be a type that can be converted
-    /// from [`RawNamespace`] using [`Into`]. All namespaces in the dump are positive numbers,
-    /// so an unsigned type can be used.
-    /// The corresponding field in the database
-    /// (the [`page_namespace`](https://www.mediawiki.org/wiki/Manual:Page_table#page_namespace)
-    /// field in the `page` table) is a signed integer.
-    ///
-    /// Parsed from the text content of the `ns` element in the `page` element.
-    ///
-    /// For ordinary articles the namespace is `0`.
+    /**
+    The [namespace](https://www.mediawiki.org/wiki/Manual:Namespace)
+    of the page, which must be a type that can be converted
+    from [`RawNamespace`] using [`TryInto`]. All namespaces in the dump are positive numbers,
+    so an unsigned type can be used. The corresponding field in the database
+    (the [`page_namespace`](https://www.mediawiki.org/wiki/Manual:Page_table#page_namespace)
+    field in the `page` table) is a signed integer because there are two
+    virtual namespaces with the values `-1` and `-2`, but all the pages that
+    have entries in the `page` table have positive namespaces.
+    
+    Parsed from the text content of the `ns` element in the `page` element.
+    
+    For ordinary articles the namespace is `0`.
+    */
     pub namespace: N,
 
     /// The text of the revision.
