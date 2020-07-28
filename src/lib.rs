@@ -41,9 +41,6 @@ A running example with complete error handling is available in the
 `examples` folder.
 
 ```rust,no_run
-extern crate bzip2;
-extern crate parse_mediawiki_dump;
-
 fn main() {
     let file = std::fs::File::open("example.xml.bz2").unwrap();
     let file = std::io::BufReader::new(file);
@@ -78,8 +75,6 @@ fn main() {
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
-
-extern crate quick_xml;
 
 use quick_xml::{events::Event, Reader};
 use std::{convert::TryInto, io::BufRead, marker::PhantomData};

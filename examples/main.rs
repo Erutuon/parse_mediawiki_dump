@@ -2,9 +2,6 @@
 // This is free software distributed under the terms specified in
 // the file LICENSE at the top-level directory of this distribution.
 
-extern crate bzip2;
-extern crate parse_mediawiki_dump;
-
 fn main() {
     let mut args = std::env::args();
     if args.len() != 2 {

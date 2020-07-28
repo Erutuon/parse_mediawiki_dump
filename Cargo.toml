@@ -6,6 +6,7 @@ name = "parse_mediawiki_dump"
 readme = "readme.md"
 repository = "https://github.com/portstrom/parse_mediawiki_dump"
 version = "0.1.0"
+edition = "2018"
 
 [dependencies]
 quick-xml = "0.18"

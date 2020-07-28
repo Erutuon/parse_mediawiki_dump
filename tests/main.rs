@@ -5,8 +5,6 @@
 use std::io::{BufReader, Cursor};
 use parse_mediawiki_dump::RawNamespace;
 
-extern crate parse_mediawiki_dump;
-
 const DUMP: &str = r#"
 <mediawiki xmlns="http://www.mediawiki.org/xml/export-0.10/">,
     <page>
