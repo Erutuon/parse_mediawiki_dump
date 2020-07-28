@@ -165,7 +165,7 @@ pub enum Namespace {
 
 impl TryFrom<RawNamespace> for Namespace {
     type Error = &'static str;
-    
+
     fn try_from(id: RawNamespace) -> Result<Self, Self::Error> {
         use Namespace::*;
         let namespace = match id {
@@ -193,7 +193,7 @@ impl TryFrom<RawNamespace> for Namespace {
 # fn main() {}
 ```
 */
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Page<N> {
     /// The format of the revision if any.
     ///
@@ -220,9 +220,9 @@ pub struct Page<N> {
     field in the `page` table) is a signed integer because there are two
     virtual namespaces with the values `-1` and `-2`, but all the pages that
     have entries in the `page` table have positive namespaces.
-    
+
     Parsed from the text content of the `ns` element in the `page` element.
-    
+
     For ordinary articles the namespace is `0`.
     */
     pub namespace: N,
