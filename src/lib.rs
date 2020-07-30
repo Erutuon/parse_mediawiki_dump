@@ -326,6 +326,16 @@ impl std::fmt::Display for Error {
     }
 }
 
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        if let Self::XmlReader(e) = self {
+            Some(e)
+        } else {
+            None
+        }
+    }
+}
+
 impl From<quick_xml::Error> for Error {
     fn from(value: quick_xml::Error) -> Self {
         Error::XmlReader(value)
