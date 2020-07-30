@@ -54,7 +54,7 @@ impl TryFrom<NamespaceId> for Namespace {
 
     fn try_from(id: NamespaceId) -> Result<Self, Self::Error> {
         use Namespace::*;
-        let namespace = match id {
+        let namespace = match i32::from(id) {
             0 => Main,
             1 => Talk,
             2 => User,
@@ -85,7 +85,7 @@ fn main() {
         Some(Ok(parse_mediawiki_dump::Page {
             format: Some(format),
             model: Some(model),
-            namespace: 0,
+            namespace,
             redirect_title,
             text,
             title,
@@ -94,20 +94,22 @@ fn main() {
                 && model == "gamma"
                 && redirect_title == None
                 && text == "delta"
-                && title == "alpha",
+                && title == "alpha"
+                && namespace == NamespaceId::from(0),
         _ => false,
     });
     assert!(match parser.next() {
         Some(Ok(parse_mediawiki_dump::Page {
             format: None,
             model: None,
-            namespace: 1,
+            namespace,
             redirect_title,
             text,
             title,
         })) =>
             text == "eta"
                 && title == "epsilon"
+                && namespace == NamespaceId::from(1)
                 && redirect_title == Some("zeta".to_string()),
         _ => false,
     });

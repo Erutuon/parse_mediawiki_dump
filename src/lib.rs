@@ -77,22 +77,56 @@ fn main() {
 #![warn(missing_docs)]
 
 use quick_xml::{events::Event, Reader};
-use std::{convert::TryInto, io::BufRead, marker::PhantomData};
+use std::{convert::TryInto, io::BufRead, marker::PhantomData, str::FromStr};
 
 /**
 The default namespace type in the [`Page`] struct.
 
-The corresponding field in the database
-(the [`page_namespace`](https://www.mediawiki.org/wiki/Manual:Page_table#page_namespace)
-field in the `page` table) is an signed integer.
-
-However, all namespaces in the dump are positive numbers.
+It wraps a signed integer because the corresponding field in the database
+(the [`page_namespace`] field in the `page` table) is
+a signed integer. However, all namespaces in the dump are positive numbers.
 The two negative namespaces, `-1` (Special) and `-2` (Media)
-never actually appear in the `page` table. This implementation uses
-a signed integer so that these namespaces can be represented in the type
-even though they are never used.
+never actually appear in the `page` table.
+
+The [`FromNamespaceId`] trait can be implemented to convert this type into
+an enum that represents the namespaces of a particular MediaWiki installation.
+
+[`page_namespace`]:
+https://www.mediawiki.org/wiki/Manual:Page_table#page_namespace
 */
-pub type NamespaceId = i32;
+#[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Hash, Default)]
+pub struct NamespaceId(i32);
+
+impl NamespaceId {
+    /// Creates a `NamespaceId` from an `i32`.
+    pub fn new(n: i32) -> Self {
+        Self(n)
+    }
+
+    /// Returns the wrapped integer.
+    pub fn into_inner(self) -> i32 {
+        self.0
+    }
+}
+
+impl From<i32> for NamespaceId {
+    fn from(n: i32) -> Self {
+        Self::new(n)
+    }
+}
+
+impl From<NamespaceId> for i32 {
+    fn from(id: NamespaceId) -> Self {
+        id.0
+    }
+}
+
+impl FromStr for NamespaceId {
+    type Err = <i32 as FromStr>::Err;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(FromStr::from_str(s)?))
+    }
+}
 
 /**
 Trait for a fallible conversion from [`NamespaceId`].
@@ -104,14 +138,15 @@ by [`TryInto::try_into`].
 # Implementation
 A type implementing `FromNamespaceId` should include values for namespace ids
 -2 to 15, because they are present in all MediaWiki installations
-according to the [MediaWiki documentation]
-(https://www.mediawiki.org/wiki/Manual:Namespace#Built-in_namespaces)
-and all of 0 to 15 may be found in the `pages-meta-current.xml` dump file.
+according to the [MediaWiki documentation][built-in namespaces]
+and all of 0 to 15 are likely to be found in a `pages-meta-current.xml` dump file.
 
 Implementing `TryFrom<NamespaceId> for Namespace` allows you to convert
 a namespace from an integer type and gives you an implementation
 of `FromNamespaceId` for free, though it requires defining a dummy `Error`
 type that is not really useful:
+
+[built-in namespaces]: https://www.mediawiki.org/wiki/Manual:Namespace#Built-in_namespaces
 
 ```rust
 use std::convert::TryFrom;
@@ -307,7 +342,8 @@ impl std::fmt::Display for Error {
             Error::Namespace { id, position } => write!(
                 formatter,
                 "The namespace {} at position {} was not recognized",
-                id, position,
+                id.into_inner(),
+                position,
             ),
         }
     }
