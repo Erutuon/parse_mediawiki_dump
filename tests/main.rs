@@ -2,8 +2,9 @@
 // This is free software distributed under the terms specified in
 // the file LICENSE at the top-level directory of this distribution.
 
+use parse_mediawiki_dump::NamespaceId;
+use std::convert::TryFrom;
 use std::io::{BufReader, Cursor};
-use parse_mediawiki_dump::RawNamespace;
 
 const DUMP: &str = r#"
 <mediawiki xmlns="http://www.mediawiki.org/xml/export-0.10/">,
@@ -18,7 +19,7 @@ const DUMP: &str = r#"
     </page>
     <page>
         <title>epsilon</title>
-        <ns>42</ns>
+        <ns>1</ns>
         <redirect title="zeta" />
         <revision>
             <text>eta</text>
@@ -26,30 +27,55 @@ const DUMP: &str = r#"
     </page>
 </mediawiki>"#;
 
-enum Namespace {
-    Zero,
-    FortyTwo,
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Hash)]
+pub enum Namespace {
+    Media = -2,
+    Special = -1,
+    Main = 0,
+    Talk = 1,
+    User = 2,
+    UserTalk = 3,
+    Wiktionary = 4,
+    WiktionaryTalk = 5,
+    File = 6,
+    FileTalk = 7,
+    MediaWiki = 8,
+    MediaWikiTalk = 9,
+    Template = 10,
+    TemplateTalk = 11,
+    Help = 12,
+    HelpTalk = 13,
+    Category = 14,
+    CategoryTalk = 15,
 }
 
-impl Into<Namespace> for RawNamespace {
-    fn into(self) -> Namespace {
-        match self {
-            0 => Namespace::Zero,
-            42 => Namespace::FortyTwo,
-            _ => panic!("invalid namespace"),
-        }
+impl TryFrom<NamespaceId> for Namespace {
+    type Error = &'static str;
+
+    fn try_from(id: NamespaceId) -> Result<Self, Self::Error> {
+        use Namespace::*;
+        let namespace = match id {
+            0 => Main,
+            1 => Talk,
+            2 => User,
+            3 => UserTalk,
+            4 => Wiktionary,
+            5 => WiktionaryTalk,
+            6 => File,
+            7 => FileTalk,
+            8 => MediaWiki,
+            9 => MediaWikiTalk,
+            10 => Template,
+            11 => TemplateTalk,
+            12 => Help,
+            13 => HelpTalk,
+            14 => Category,
+            15 => CategoryTalk,
+            _ => return Err("invalid namespace"),
+        };
+        Ok(namespace)
     }
 }
-
-// impl From<i32> for Namespace {
-//     fn from(n: i32) -> Self {
-//         match n {
-//             0 => Namespace::Zero,
-//             42 => Namespace::FortyTwo,
-//             _ => panic!("invalid namespace"),
-//         }
-//     }
-// }
 
 #[test]
 fn main() {
@@ -75,7 +101,7 @@ fn main() {
         Some(Ok(parse_mediawiki_dump::Page {
             format: None,
             model: None,
-            namespace: 42,
+            namespace: 1,
             redirect_title,
             text,
             title,
@@ -87,13 +113,14 @@ fn main() {
     });
     assert!(parser.next().is_none());
 
-    let mut parser =
-        parse_mediawiki_dump::parse_with_namespace(BufReader::new(Cursor::new(DUMP)));
+    let mut parser = parse_mediawiki_dump::parse_with_namespace(
+        BufReader::new(Cursor::new(DUMP)),
+    );
     assert!(match parser.next() {
         Some(Ok(parse_mediawiki_dump::Page {
             format: Some(format),
             model: Some(model),
-            namespace: Namespace::Zero,
+            namespace: Namespace::Main,
             redirect_title,
             text,
             title,
@@ -109,7 +136,7 @@ fn main() {
         Some(Ok(parse_mediawiki_dump::Page {
             format: None,
             model: None,
-            namespace: Namespace::FortyTwo,
+            namespace: Namespace::Talk,
             redirect_title,
             text,
             title,

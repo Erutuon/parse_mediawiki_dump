@@ -79,8 +79,113 @@ fn main() {
 use quick_xml::{events::Event, Reader};
 use std::{convert::TryInto, io::BufRead, marker::PhantomData};
 
-/// The default namespace type in the [`Page`] struct.
-pub type RawNamespace = u32;
+/**
+The default namespace type in the [`Page`] struct.
+
+The corresponding field in the database
+(the [`page_namespace`](https://www.mediawiki.org/wiki/Manual:Page_table#page_namespace)
+field in the `page` table) is an signed integer.
+
+However, all namespaces in the dump are positive numbers.
+The two negative namespaces, `-1` (Special) and `-2` (Media)
+never actually appear in the `page` table. This implementation uses
+a signed integer so that these namespaces can be represented in the type
+even though they are never used.
+*/
+pub type NamespaceId = i32;
+
+/**
+Trait for a fallible conversion from [`NamespaceId`].
+Required by the `namespace` field in the [`Page`] struct.
+
+Automatically implemented for types that can be converted from `NamespaceId`
+by [`TryInto::try_into`].
+
+# Implementation
+A type implementing `FromNamespaceId` should include values for namespace ids
+-2 to 15, because they are present in all MediaWiki installations
+according to the [MediaWiki documentation]
+(https://www.mediawiki.org/wiki/Manual:Namespace#Built-in_namespaces)
+and all of 0 to 15 may be found in the `pages-meta-current.xml` dump file.
+
+Implementing `TryFrom<NamespaceId> for Namespace` allows you to convert
+a namespace from an integer type and gives you an implementation
+of `FromNamespaceId` for free, though it requires defining a dummy `Error`
+type that is not really useful:
+
+```rust
+use std::convert::TryFrom;
+use parse_mediawiki_dump::{NamespaceId, FromNamespaceId};
+
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Hash)]
+pub enum Namespace {
+    Media = -2,
+    Special = -1,
+    Main = 0,
+    Talk = 1,
+    User = 2,
+    UserTalk = 3,
+    Wiktionary = 4,
+    WiktionaryTalk = 5,
+    File = 6,
+    FileTalk = 7,
+    MediaWiki = 8,
+    MediaWikiTalk = 9,
+    Template = 10,
+    TemplateTalk = 11,
+    Help = 12,
+    HelpTalk = 13,
+    Category = 14,
+    CategoryTalk = 15,
+}
+
+impl TryFrom<NamespaceId> for Namespace {
+    type Error = &'static str;
+
+    fn try_from(id: NamespaceId) -> Result<Self, Self::Error> {
+        use Namespace::*;
+        let namespace = match id {
+            0 => Main,
+            1 => Talk,
+            2 => User,
+            3 => UserTalk,
+            4 => Wiktionary,
+            5 => WiktionaryTalk,
+            6 => File,
+            7 => FileTalk,
+            8 => MediaWiki,
+            9 => MediaWikiTalk,
+            10 => Template,
+            11 => TemplateTalk,
+            12 => Help,
+            13 => HelpTalk,
+            14 => Category,
+            15 => CategoryTalk,
+            _ => return Err("invalid namespace"),
+        };
+        Ok(namespace)
+    }
+}
+
+fn main() {
+    assert_eq!(Namespace::from_namespace_id(0), Some(Namespace::Main));
+    assert_eq!(Namespace::from_namespace_id(11), Some(Namespace::TemplateTalk));
+}
+```
+*/
+pub trait FromNamespaceId: Sized {
+    /// Converts fallibly from `NamespaceId`.
+    fn from_namespace_id(id: NamespaceId) -> Option<Self>;
+}
+
+impl<T> FromNamespaceId for T
+where
+    NamespaceId: TryInto<T>,
+{
+    fn from_namespace_id(id: NamespaceId) -> Option<Self> {
+        id.try_into().ok()
+    }
+}
 
 enum PageChildElement {
     Ns,
@@ -114,7 +219,8 @@ pub enum Error {
     XmlReader(quick_xml::Error),
 
     /// Namespace id could not be converted to selected namespace type.
-    Namespace(RawNamespace),
+    #[allow(missing_docs)]
+    Namespace { id: NamespaceId, position: usize },
 }
 
 /**
@@ -123,70 +229,13 @@ Parsed page.
 Parsed from the `page` element.
 
 Generic over the type of the namespace, which must be convertible
-from `RawNamespace` with `TryInto`. Use [`parse_with_namespace`] to select
-a custom type for the namespace; [`parse`] uses the default, `RawNamespace>.
+from `NamespaceId` with `TryInto`. Use [`parse_with_namespace`] to select
+a custom type for the namespace; [`parse`] uses the default, `NamespaceId>.
 
 Although the `format` and `model` elements are defined as mandatory in the
 [schema](https://www.mediawiki.org/xml/export-0.10.xsd), previous versions
 of the schema don't contain them. Therefore the corresponding fields can
 be `None`.
-
-A namespace type should have at minimum namespaces 0 to 15, which are
-present in all MediaWiki installations, and can look like this:
-
-```rust,no_run
-use std::convert::TryFrom;
-// use parse_mediawiki_dump::RawNamespace;
-type RawNamespace = u32;
-
-pub enum Namespace {
-    Main = 0,
-    Talk = 1,
-    User = 2,
-    UserTalk = 3,
-    Wiktionary = 4,
-    WiktionaryTalk = 5,
-    File = 6,
-    FileTalk = 7,
-    MediaWiki = 8,
-    MediaWikiTalk = 9,
-    Template = 10,
-    TemplateTalk = 11,
-    Help = 12,
-    HelpTalk = 13,
-    Category = 14,
-    CategoryTalk = 15,
-}
-
-impl TryFrom<RawNamespace> for Namespace {
-    type Error = &'static str;
-
-    fn try_from(id: RawNamespace) -> Result<Self, Self::Error> {
-        use Namespace::*;
-        let namespace = match id {
-            0 => Main,
-            1 => Talk,
-            2 => User,
-            3 => UserTalk,
-            4 => Wiktionary,
-            5 => WiktionaryTalk,
-            6 => File,
-            7 => FileTalk,
-            8 => MediaWiki,
-            9 => MediaWikiTalk,
-            10 => Template,
-            11 => TemplateTalk,
-            12 => Help,
-            13 => HelpTalk,
-            14 => Category,
-            15 => CategoryTalk,
-            _ => return Err("invalid namespace"),
-        };
-        Ok(namespace)
-    }
-}
-# fn main() {}
-```
 */
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Page<N> {
@@ -208,17 +257,10 @@ pub struct Page<N> {
 
     /**
     The [namespace](https://www.mediawiki.org/wiki/Manual:Namespace)
-    of the page, which must be a type that can be converted
-    from [`RawNamespace`] using [`TryInto`]. All namespaces in the dump are positive numbers,
-    so an unsigned type can be used. The corresponding field in the database
-    (the [`page_namespace`](https://www.mediawiki.org/wiki/Manual:Page_table#page_namespace)
-    field in the `page` table) is a signed integer because there are two
-    virtual namespaces with the values `-1` and `-2`, but all the pages that
-    have entries in the `page` table have positive namespaces.
+    of the page. All parsing functions require that this field
+    implement `FromNamespaceId`.
 
     Parsed from the text content of the `ns` element in the `page` element.
-
-    For ordinary articles the namespace is `0`.
     */
     pub namespace: N,
 
@@ -262,10 +304,10 @@ impl std::fmt::Display for Error {
                 position
             ),
             Error::XmlReader(error) => error.fmt(formatter),
-            Error::Namespace(namespace) => write!(
+            Error::Namespace { id, position } => write!(
                 formatter,
-                "The namespace {} was not recognized",
-                namespace
+                "The namespace {} at position {} was not recognized",
+                id, position,
             ),
         }
     }
@@ -277,10 +319,7 @@ impl From<quick_xml::Error> for Error {
     }
 }
 
-impl<R: BufRead, N> Iterator for Parser<R, N>
-where
-    RawNamespace: TryInto<N>,
-{
+impl<R: BufRead, N: FromNamespaceId> Iterator for Parser<R, N> {
     type Item = Result<Page<N>, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -300,12 +339,9 @@ fn match_namespace(namespace: Option<&[u8]>) -> bool {
     }
 }
 
-fn next<R: BufRead, N>(
+fn next<R: BufRead, N: FromNamespaceId>(
     parser: &mut Parser<R, N>,
-) -> Result<Option<Page<N>>, Error>
-where
-    RawNamespace: TryInto<N>,
-{
+) -> Result<Option<Page<N>>, Error> {
     if !parser.started {
         loop {
             parser.buffer.clear();
@@ -403,8 +439,7 @@ where
                 _ => continue,
             } {
                 PageChildElement::Ns => {
-                    match parse_text(parser, &namespace)?
-                        .parse::<RawNamespace>()
+                    match parse_text(parser, &namespace)?.parse::<NamespaceId>()
                     {
                         Err(_) => {
                             return Err(Error::Format(
@@ -412,11 +447,14 @@ where
                             ))
                         }
                         Ok(value) => {
-                            namespace = Some(
-                                value
-                                    .try_into()
-                                    .map_err(|_| Error::Namespace(value))?,
-                            );
+                            namespace =
+                                Some(N::from_namespace_id(value).ok_or_else(
+                                    || Error::Namespace {
+                                        id: value,
+                                        position:
+                                            parser.reader.buffer_position(),
+                                    },
+                                )?);
                             continue;
                         }
                     }
@@ -485,12 +523,12 @@ where
 }
 
 /// Creates a parser for a stream in which namespaces are represented as
-/// [`RawNamespace`]. Equivalent to `parse_with_namespace` with the second
-/// generic argument set to `RawNamespace` (`parse_with_namespace::<_, RawNamespace>`).
+/// [`NamespaceId`]. Equivalent to `parse_with_namespace` with the second
+/// generic argument set to `NamespaceId` (`parse_with_namespace::<_, NamespaceId>`).
 ///
 /// The stream is parsed as an XML dump exported from MediaWiki. The parser is
 /// an iterator over the pages in the dump.
-pub fn parse<R: BufRead>(source: R) -> Parser<R, RawNamespace> {
+pub fn parse<R: BufRead>(source: R) -> Parser<R, NamespaceId> {
     parse_with_namespace(source)
 }
 
@@ -498,10 +536,9 @@ pub fn parse<R: BufRead>(source: R) -> Parser<R, RawNamespace> {
 ///
 /// The stream is parsed as an XML dump exported from MediaWiki. The parser is
 /// an iterator over the pages in the dump.
-pub fn parse_with_namespace<R: BufRead, N>(source: R) -> Parser<R, N>
-where
-    RawNamespace: TryInto<N>,
-{
+pub fn parse_with_namespace<R: BufRead, N: FromNamespaceId>(
+    source: R,
+) -> Parser<R, N> {
     let mut reader = Reader::from_reader(source);
     reader.expand_empty_elements(true);
     Parser {
@@ -513,13 +550,10 @@ where
     }
 }
 
-fn parse_text<R: BufRead, N>(
+fn parse_text<R: BufRead, N: FromNamespaceId>(
     parser: &mut Parser<R, N>,
     output: &Option<impl Sized>,
-) -> Result<String, Error>
-where
-    RawNamespace: TryInto<N>,
-{
+) -> Result<String, Error> {
     if output.is_some() {
         return Err(Error::Format(parser.reader.buffer_position()));
     }
@@ -551,12 +585,9 @@ where
     }
 }
 
-fn skip_element<R: BufRead, N>(
+fn skip_element<R: BufRead, N: FromNamespaceId>(
     parser: &mut Parser<R, N>,
-) -> Result<(), quick_xml::Error>
-where
-    RawNamespace: TryInto<N>,
-{
+) -> Result<(), quick_xml::Error> {
     let mut level = 0;
     loop {
         parser.buffer.clear();
