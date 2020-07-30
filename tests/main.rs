@@ -2,8 +2,7 @@
 // This is free software distributed under the terms specified in
 // the file LICENSE at the top-level directory of this distribution.
 
-use parse_mediawiki_dump::NamespaceId;
-use std::convert::TryFrom;
+use parse_mediawiki_dump::{impl_namespace, NamespaceId};
 use std::io::{BufReader, Cursor};
 
 const DUMP: &str = r#"
@@ -27,53 +26,26 @@ const DUMP: &str = r#"
     </page>
 </mediawiki>"#;
 
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Hash)]
-pub enum Namespace {
-    Media = -2,
-    Special = -1,
-    Main = 0,
-    Talk = 1,
-    User = 2,
-    UserTalk = 3,
-    Wiktionary = 4,
-    WiktionaryTalk = 5,
-    File = 6,
-    FileTalk = 7,
-    MediaWiki = 8,
-    MediaWikiTalk = 9,
-    Template = 10,
-    TemplateTalk = 11,
-    Help = 12,
-    HelpTalk = 13,
-    Category = 14,
-    CategoryTalk = 15,
-}
-
-impl TryFrom<NamespaceId> for Namespace {
-    type Error = &'static str;
-
-    fn try_from(id: NamespaceId) -> Result<Self, Self::Error> {
-        use Namespace::*;
-        let namespace = match i32::from(id) {
-            0 => Main,
-            1 => Talk,
-            2 => User,
-            3 => UserTalk,
-            4 => Wiktionary,
-            5 => WiktionaryTalk,
-            6 => File,
-            7 => FileTalk,
-            8 => MediaWiki,
-            9 => MediaWikiTalk,
-            10 => Template,
-            11 => TemplateTalk,
-            12 => Help,
-            13 => HelpTalk,
-            14 => Category,
-            15 => CategoryTalk,
-            _ => return Err("invalid namespace"),
-        };
-        Ok(namespace)
+impl_namespace! {
+    pub enum Namespace {
+        Media = -2,
+        Special = -1,
+        Main = 0,
+        Talk = 1,
+        User = 2,
+        UserTalk = 3,
+        Wiktionary = 4,
+        WiktionaryTalk = 5,
+        File = 6,
+        FileTalk = 7,
+        MediaWiki = 8,
+        MediaWikiTalk = 9,
+        Template = 10,
+        TemplateTalk = 11,
+        Help = 12,
+        HelpTalk = 13,
+        Category = 14,
+        CategoryTalk = 15,
     }
 }
 
@@ -85,7 +57,7 @@ fn main() {
         Some(Ok(parse_mediawiki_dump::Page {
             format: Some(format),
             model: Some(model),
-            namespace,
+            namespace: NamespaceId(0),
             redirect_title,
             text,
             title,
@@ -94,23 +66,21 @@ fn main() {
                 && model == "gamma"
                 && redirect_title == None
                 && text == "delta"
-                && title == "alpha"
-                && namespace == NamespaceId::from(0),
+                && title == "alpha",
         _ => false,
     });
     assert!(match parser.next() {
         Some(Ok(parse_mediawiki_dump::Page {
             format: None,
             model: None,
-            namespace,
+            namespace: NamespaceId(1),
             redirect_title,
             text,
             title,
         })) =>
-            text == "eta"
-                && title == "epsilon"
-                && namespace == NamespaceId::from(1)
-                && redirect_title == Some("zeta".to_string()),
+            redirect_title == Some("zeta".to_string())
+                && text == "eta"
+                && title == "epsilon",
         _ => false,
     });
     assert!(parser.next().is_none());

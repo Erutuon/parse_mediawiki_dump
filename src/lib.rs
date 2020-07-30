@@ -52,7 +52,7 @@ fn main() {
                 eprintln!("Error: {}", error);
                 break;
             }
-            Ok(page) => if page.namespace == 0 && match &page.format {
+            Ok(page) => if page.namespace.into_inner() == 0 && match &page.format {
                 None => false,
                 Some(format) => format == "text/x-wiki"
             } && match &page.model {
@@ -85,8 +85,8 @@ The default namespace type in the [`Page`] struct.
 It wraps a signed integer because the corresponding field in the database
 (the [`page_namespace`] field in the `page` table) is
 a signed integer. However, all namespaces in the dump are positive numbers.
-The two negative namespaces, `-1` (Special) and `-2` (Media)
-never actually appear in the `page` table.
+The two negative namespaces, -1 (Special) and -2 (Media)
+never actually appear in the `page` table or in the XML dump.
 
 The [`FromNamespaceId`] trait can be implemented to convert this type into
 an enum that represents the namespaces of a particular MediaWiki installation.
@@ -95,16 +95,16 @@ an enum that represents the namespaces of a particular MediaWiki installation.
 https://www.mediawiki.org/wiki/Manual:Page_table#page_namespace
 */
 #[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Hash, Default)]
-pub struct NamespaceId(i32);
+pub struct NamespaceId(pub i32);
 
 impl NamespaceId {
     /// Creates a `NamespaceId` from an `i32`.
-    pub fn new(n: i32) -> Self {
+    pub const fn new(n: i32) -> Self {
         Self(n)
     }
 
     /// Returns the wrapped integer.
-    pub fn into_inner(self) -> i32 {
+    pub const fn into_inner(self) -> i32 {
         self.0
     }
 }
@@ -136,75 +136,52 @@ Automatically implemented for types that can be converted from `NamespaceId`
 by [`TryInto::try_into`].
 
 # Implementation
+The trait can be implemented with the [`impl_namespace`] macro.
+
 A type implementing `FromNamespaceId` should include values for namespace ids
 -2 to 15, because they are present in all MediaWiki installations
 according to the [MediaWiki documentation][built-in namespaces]
 and all of 0 to 15 are likely to be found in a `pages-meta-current.xml` dump file.
 
-Implementing `TryFrom<NamespaceId> for Namespace` allows you to convert
-a namespace from an integer type and gives you an implementation
-of `FromNamespaceId` for free, though it requires defining a dummy `Error`
-type that is not really useful:
-
 [built-in namespaces]: https://www.mediawiki.org/wiki/Manual:Namespace#Built-in_namespaces
 
 ```rust
 use std::convert::TryFrom;
-use parse_mediawiki_dump::{NamespaceId, FromNamespaceId};
+use parse_mediawiki_dump::{FromNamespaceId, impl_namespace, NamespaceId};
 
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Hash)]
-pub enum Namespace {
-    Media = -2,
-    Special = -1,
-    Main = 0,
-    Talk = 1,
-    User = 2,
-    UserTalk = 3,
-    Wiktionary = 4,
-    WiktionaryTalk = 5,
-    File = 6,
-    FileTalk = 7,
-    MediaWiki = 8,
-    MediaWikiTalk = 9,
-    Template = 10,
-    TemplateTalk = 11,
-    Help = 12,
-    HelpTalk = 13,
-    Category = 14,
-    CategoryTalk = 15,
-}
-
-impl TryFrom<NamespaceId> for Namespace {
-    type Error = &'static str;
-
-    fn try_from(id: NamespaceId) -> Result<Self, Self::Error> {
-        use Namespace::*;
-        let namespace = match id {
-            0 => Main,
-            1 => Talk,
-            2 => User,
-            3 => UserTalk,
-            4 => Wiktionary,
-            5 => WiktionaryTalk,
-            6 => File,
-            7 => FileTalk,
-            8 => MediaWiki,
-            9 => MediaWikiTalk,
-            10 => Template,
-            11 => TemplateTalk,
-            12 => Help,
-            13 => HelpTalk,
-            14 => Category,
-            15 => CategoryTalk,
-            _ => return Err("invalid namespace"),
-        };
-        Ok(namespace)
+impl_namespace! {
+    /// A type containing the built-in MediaWiki namespaces.
+    pub enum Namespace {
+        Media = -2,
+        Special = -1,
+        Main = 0,
+        Talk = 1,
+        User = 2,
+        UserTalk = 3,
+        Wiktionary = 4,
+        WiktionaryTalk = 5,
+        File = 6,
+        FileTalk = 7,
+        MediaWiki = 8,
+        MediaWikiTalk = 9,
+        Template = 10,
+        TemplateTalk = 11,
+        Help = 12,
+        HelpTalk = 13,
+        Category = 14,
+        CategoryTalk = 15,
     }
 }
 
 fn main() {
-    assert_eq!(Namespace::from_namespace_id(0), Some(Namespace::Main));
-    assert_eq!(Namespace::from_namespace_id(11), Some(Namespace::TemplateTalk));
+    assert_eq!(
+        Namespace::from_namespace_id(NamespaceId(0)),
+        Some(Namespace::Main)
+    );
+    assert_eq!(
+        Namespace::from_namespace_id(NamespaceId(11)),
+        Some(Namespace::TemplateTalk)
+    );
 }
 ```
 */
@@ -645,4 +622,40 @@ fn skip_element<R: BufRead, N: FromNamespaceId>(
             _ => {}
         }
     }
+}
+
+/**
+Enclose a namespace enum definition to derive the [`FromNamespaceId`] trait
+as well as other [common traits] ([`Debug`], [`Eq`], [`PartialEq`], [`Ord`],
+[`PartialOrd`], [`Clone`], [`Copy`], [`Hash`]) for it.
+
+[common traits]:
+https://rust-lang.github.io/api-guidelines/interoperability.html#c-common-traits
+*/
+#[macro_export]
+macro_rules! impl_namespace {
+    (
+        $(#[$attribute:meta])*
+        $visibility:vis enum $namespace:ident {
+            $($variant:ident = $id:literal),* $(,)?
+        }
+    ) => {
+        $(#[$attribute])*
+        #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Hash)]
+        #[repr(i32)]
+        $visibility enum $namespace {
+            $($variant = $id,)*
+        }
+
+        impl ::std::convert::TryFrom<::parse_mediawiki_dump::NamespaceId> for $namespace {
+            type Error = &'static str;
+
+            fn try_from(id: ::parse_mediawiki_dump::NamespaceId) -> Result<Self, Self::Error> {
+                match i32::from(id) {
+                    $($id => Ok($namespace::$variant),)*
+                    _ => Err("invalid namespace id"),
+                }
+            }
+        }
+    };
 }
