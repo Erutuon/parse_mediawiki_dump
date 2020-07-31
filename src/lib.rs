@@ -77,7 +77,10 @@ fn main() {
 #![warn(missing_docs)]
 
 use quick_xml::{events::Event, Reader};
-use std::{convert::TryInto, io::BufRead, marker::PhantomData, str::FromStr};
+use std::{
+    convert::TryInto, hash::Hash, io::BufRead, marker::PhantomData,
+    str::FromStr, borrow::Cow,
+};
 
 /**
 The default namespace type in the [`Page`] struct.
@@ -245,12 +248,35 @@ from `NamespaceId` with `TryInto`. Use [`parse_with_namespace`] to select
 a custom type for the namespace; [`parse`] uses the default, `NamespaceId>.
 
 Although the `format` and `model` elements are defined as mandatory in the
-[schema](https://www.mediawiki.org/xml/export-0.10.xsd), previous versions
-of the schema don't contain them. Therefore the corresponding fields can
-be `None`.
+[schema], previous versions of the schema don't contain them.
+Therefore the corresponding fields can be `None`.
+
+The implementations of [`PartialOrd`], [`Ord`], [`PartialEq`], [`Eq`],
+and [`Hash`] for this type only look at the `namespace` and `title` fields,
+as the `page` table is set up so that this pair of fields is unique
+for every page (see the [database installation script]).
+
+[schema]: https://www.mediawiki.org/xml/export-0.10.xsd
+[database installation script]:
+https://phabricator.wikimedia.org/source/mediawiki/browse/master/maintenance/tables.sql;aa3c07964c56$279
 */
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Debug, Clone)]
 pub struct Page<N> {
+    /// The title of the page with the namespace prefix.
+    ///
+    /// Parsed from the text content of the `title` element in the `page` element.
+    pub title: String,
+
+    /**
+    The [namespace](https://www.mediawiki.org/wiki/Manual:Namespace)
+    of the page.
+
+    Parsed from the text content of the `ns` element in the `page` element.
+
+    All parsing functions require that this field implement `FromNamespaceId`.
+    */
+    pub namespace: N,
+
     /// The format of the revision if any.
     ///
     /// Parsed from the text content of the `format` element in the `revision`
@@ -267,24 +293,10 @@ pub struct Page<N> {
     /// For ordinary articles the model is `wikitext`.
     pub model: Option<String>,
 
-    /**
-    The [namespace](https://www.mediawiki.org/wiki/Manual:Namespace)
-    of the page. All parsing functions require that this field
-    implement `FromNamespaceId`.
-
-    Parsed from the text content of the `ns` element in the `page` element.
-    */
-    pub namespace: N,
-
     /// The text of the revision.
     ///
     /// Parsed from the text content of the `text` element in the `revision` element.
     pub text: String,
-
-    /// The title of the page.
-    ///
-    /// Parsed from the text content of the `title` element in the `page` element.
-    pub title: String,
 
     /// The redirect target if any.
     ///
@@ -302,6 +314,49 @@ pub struct Parser<R: BufRead, Namespace> {
     reader: Reader<R>,
     started: bool,
     phantom: PhantomData<Namespace>,
+}
+
+impl<N> PartialEq for Page<N>
+where
+    N: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.namespace == other.namespace && self.title == other.title
+    }
+}
+
+impl<N> Eq for Page<N> where N: Eq {}
+
+impl<N> PartialOrd for Page<N>
+where
+    N: PartialOrd,
+{
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.namespace
+            .partial_cmp(&other.namespace)
+            .map(|ord| ord.then_with(|| self.title.cmp(&other.title)))
+    }
+}
+
+impl<N> Ord for Page<N>
+where
+    N: Ord,
+{
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.namespace
+            .cmp(&other.namespace)
+            .then_with(|| self.title.cmp(&other.title))
+    }
+}
+
+impl<N> Hash for Page<N>
+where
+    N: Hash,
+{
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.namespace.hash(state);
+        self.title.hash(state);
+    }
 }
 
 impl std::fmt::Display for Error {
